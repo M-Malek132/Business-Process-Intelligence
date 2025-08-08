@@ -5,7 +5,7 @@ import pandas as pd
 import os
 
 # Load and convert to DataFrame
-log = xes_importer.apply(r'raw_datasets\BPI_Challenge_2012.xes.gz')
+log = xes_importer.apply(r'raw_datasets\nasa.xes.gz')
 df = log_converter.apply(log, variant=log_converter.Variants.TO_DATA_FRAME)
 
 # Create bag-of-activities per trace
