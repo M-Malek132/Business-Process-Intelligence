@@ -108,3 +108,67 @@ plt.xlabel("Case Start Time")
 plt.ylabel("Number of Cases")
 plt.tight_layout()
 plt.show()
+
+
+########################################################################################
+# Compute Activity Presence % per Cluster
+########################################################################################
+
+# % of cases in each cluster that include each activity
+activity_presence = bag_df.groupby("cluster")[all_activities].mean().T * 100
+activity_presence = activity_presence.round(1)
+
+
+
+########################################################################################
+# Define Heuristic Rules to Label Clusters
+########################################################################################
+
+
+def label_cluster(activity_percentages):
+    if activity_percentages.get("A_SUBMITTED", 0) < 30:
+        return "No application submitted"
+    if activity_percentages.get("O_ACCEPTED", 0) > 70 and activity_percentages.get("W_Complete application", 0) > 50:
+        return "Full process with offer acceptance"
+    if activity_percentages.get("O_CREATED", 0) < 30:
+        return "Incomplete process, skipped offer"
+    if activity_percentages.get("W_Assess eligibility", 0) > 60:
+        return "Manual assessment-heavy flow"
+    return "Generic loan application flow"
+
+
+########################################################################################
+# Apply Labels
+########################################################################################
+
+cluster_labels = {}
+for cluster_id in activity_presence.columns:
+    activity_profile = activity_presence[cluster_id].to_dict()
+    label = label_cluster(activity_profile)
+    cluster_labels[cluster_id] = label
+
+# Attach labels to bag_df
+bag_df["cluster_label"] = bag_df["cluster"].map(cluster_labels)
+
+########################################################################################
+# Visualize Case Count by Cluster Label
+########################################################################################
+
+import seaborn as sns
+sns.countplot(data=bag_df, y="cluster_label", order=bag_df["cluster_label"].value_counts().index)
+plt.title("Cluster Label Distribution")
+plt.xlabel("Number of Cases")
+plt.ylabel("Cluster Label")
+plt.show()
+
+########################################################################################
+# Explore Dominant Activities
+########################################################################################
+
+# To auto-describe a cluster with top activities:
+
+def top_activities(activity_percentages, n=3, threshold=40):
+    return [act for act, pct in sorted(activity_percentages.items(), key=lambda x: -x[1]) if pct > threshold][:n]
+
+for cluster_id in activity_presence.columns:
+    print(f"\nCluster {cluster_id} Top Activities: {top_activities(activity_presence[cluster_id].to_dict())}")
