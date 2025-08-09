@@ -5,7 +5,7 @@ import pandas as pd
 import os
 
 # Force use of IMf (Inductive Miner for Petri nets)
-file_path = r'raw_datasets\nasa.xes.gz'
+file_path = r'Hospital Data\Hospital Billing - Event Log.xes.gz'
 
 if not os.path.isfile(file_path):
     raise FileNotFoundError(f"File not found: {file_path}")
