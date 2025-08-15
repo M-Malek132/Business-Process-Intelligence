@@ -4,7 +4,30 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
-import Levenshtein as lev
+
+# --- Edit Distance Function (Dynamic Programming) ---
+def edit_distance_dp(str1, str2):
+    len_str1 = len(str1)
+    len_str2 = len(str2)
+    
+    # Initialize a (len_str1+1) x (len_str2+1) matrix
+    dp_matrix = np.zeros((len_str1 + 1, len_str2 + 1), dtype=int)
+
+    # Initialize the base case
+    for i in range(len_str1 + 1):
+        dp_matrix[i][0] = i
+    for j in range(len_str2 + 1):
+        dp_matrix[0][j] = j
+
+    # Fill the dp matrix
+    for i in range(1, len_str1 + 1):
+        for j in range(1, len_str2 + 1):
+            cost = 0 if str1[i - 1] == str2[j - 1] else 1
+            dp_matrix[i][j] = min(dp_matrix[i - 1][j] + 1,     # Deletion
+                                   dp_matrix[i][j - 1] + 1,     # Insertion
+                                   dp_matrix[i - 1][j - 1] + cost) # Substitution
+
+    return dp_matrix[len_str1][len_str2]
 
 # Sample event log (case ID, activity, timestamp)
 event_log = [
@@ -34,14 +57,14 @@ traces = df.groupby('case_id')['activity'].apply(list).tolist()
 # Convert all traces into string format (for edit distance comparison)
 trace_strings = [' '.join(trace) for trace in traces]
 
-# Compute the pairwise Levenshtein distances (edit distance)
+# Compute the pairwise Levenshtein distances (edit distance) using the dynamic programming approach
 def compute_edit_distances(traces):
     num_traces = len(traces)
     distance_matrix = np.zeros((num_traces, num_traces))
     
     for i in range(num_traces):
         for j in range(i+1, num_traces):
-            distance = lev.distance(traces[i], traces[j])  # Levenshtein distance
+            distance = edit_distance_dp(traces[i], traces[j])  # Use edit_distance_dp instead of Levenshtein library
             distance_matrix[i, j] = distance
             distance_matrix[j, i] = distance  # Symmetric distance matrix
     return distance_matrix
@@ -60,13 +83,21 @@ df['cluster'] = df['case_id'].map(dict(zip(df['case_id'].unique(), kmeans.labels
 # --- Trace Plot ---
 # Visualize the clusters of traces
 plt.figure(figsize=(8, 6))
-plt.scatter(df['case_id'], df['cluster'], c=df['cluster'], cmap='viridis')
+# Define a color map
+cmap = plt.get_cmap('viridis')
+
+# Scatter plot for each unique cluster
+for cluster in df['cluster'].unique():
+    # Filter cases by cluster label
+    cluster_data = df[df['cluster'] == cluster]
+    plt.scatter(cluster_data['case_id'], cluster_data['cluster'], label=f'Cluster {cluster}', cmap=cmap)
+
+# Add a title, labels, and legend
 plt.xlabel('Case ID')
 plt.ylabel('Cluster')
 plt.title('Detected Concept Drift (Clustering of Event Logs using Edit Distance)')
-plt.colorbar(label='Cluster')
+plt.legend(title='Clusters')
 plt.show()
-
 # --- Process Model Plot ---
 # Create a process model using networkx (directly follow relations)
 G = nx.DiGraph()
@@ -85,7 +116,7 @@ for case_id, trace in df.groupby('case_id')['activity']:
 # Draw the process model (directly-follow graph)
 plt.figure(figsize=(10, 8))
 pos = nx.spring_layout(G, seed=42)  # Layout the graph
-nx.draw_networkx_nodes(G, pos, node_size=3000, node_color='lightblue')
+nx.draw_networkx_nodes(G, pos, node_size=300, node_color='lightblue')
 nx.draw_networkx_edges(G, pos, width=2, alpha=0.7, edge_color='gray')
 nx.draw_networkx_labels(G, pos, font_size=12, font_weight='bold', font_color='black')
 
