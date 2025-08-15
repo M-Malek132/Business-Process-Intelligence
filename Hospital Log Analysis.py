@@ -107,6 +107,10 @@ print(len(bag_of_activities[0]))
 kmeans = KMeans(n_clusters=5, random_state=42)
 kmeans_labels = kmeans.fit_predict(bag_of_activities)
 
+# Map the cluster labels to the case_id in the original DataFrame
+# Group the original df by 'case_id' to get the trace order
+df['cluster_id'] = df['case_id'].map(dict(zip(df['case_id'].unique(), kmeans_labels)))
+
 # Evaluate K-Means clustering
 sil_score_kmeans = silhouette_score(bag_of_activities, kmeans_labels)
 print(f"K-Means Silhouette Score: {sil_score_kmeans}")
