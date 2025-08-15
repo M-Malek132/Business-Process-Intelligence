@@ -4,9 +4,11 @@ import pandas as pd
 import numpy as np
 import os
 import Levenshtein as lev
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import LabelEncoder
 import matplotlib.pyplot as plt
+from kmodes.kmodes import KModes
 
 # Force use of IMf (Inductive Miner for Petri nets)
 file_path = r'Hospital Data\Hospital Billing - Event Log.xes.gz'
@@ -56,24 +58,83 @@ def trace_to_bag_of_activities(trace, activity_index):
 bag_of_activities = np.array([trace_to_bag_of_activities(trace, activity_index) for trace in traces])
 
 print(len(bag_of_activities[0]))
-# Compute the pairwise Levenshtein distances (edit distance)
-def compute_edit_distances(traces):
-    num_traces = len(traces)
-    distance_matrix = np.zeros((num_traces, num_traces))
+
+# 1. K-Means Clustering
+kmeans = KMeans(n_clusters=5, random_state=42)
+kmeans_labels = kmeans.fit_predict(bag_of_activities)
+
+# Evaluate K-Means clustering
+sil_score_kmeans = silhouette_score(bag_of_activities, kmeans_labels)
+print(f"K-Means Silhouette Score: {sil_score_kmeans}")
+
+# 2. K-Mode Clustering (using KModes from kmodes library)
+kmodes = KModes(n_clusters=5, init='Huang', n_init=10, verbose=1)
+kmodes_labels = kmodes.fit_predict(bag_of_activities)
+
+# Evaluate K-Mode clustering
+sil_score_kmodes = silhouette_score(bag_of_activities, kmodes_labels)
+print(f"K-Mode Silhouette Score: {sil_score_kmodes}")
+
+# # 3. Agglomerative Clustering
+# agg_clustering = AgglomerativeClustering(n_clusters=5)
+# agg_labels = agg_clustering.fit_predict(bag_of_activities)
+
+# # Evaluate Agglomerative Clustering
+# sil_score_agg = silhouette_score(bag_of_activities, agg_labels)
+# print(f"Agglomerative Clustering Silhouette Score: {sil_score_agg}")
+
+# 4. Visualize the results using PCA (2D projection)
+from sklearn.decomposition import PCA
+pca = PCA(n_components=2)
+reduced_data = pca.fit_transform(bag_of_activities)
+
+# Plotting K-Means Clustering Results
+plt.figure(figsize=(8, 6))
+plt.scatter(reduced_data[:, 0], reduced_data[:, 1], c=kmeans_labels, cmap='viridis')
+plt.title("K-Means Clustering Results")
+plt.xlabel("PCA Component 1")
+plt.ylabel("PCA Component 2")
+plt.colorbar(label="Cluster Label")
+plt.show()
+
+# Plotting K-Mode Clustering Results
+plt.figure(figsize=(8, 6))
+plt.scatter(reduced_data[:, 0], reduced_data[:, 1], c=kmodes_labels, cmap='viridis')
+plt.title("K-Mode Clustering Results")
+plt.xlabel("PCA Component 1")
+plt.ylabel("PCA Component 2")
+plt.colorbar(label="Cluster Label")
+plt.show()
+
+# # Plotting Agglomerative Clustering Results
+# plt.figure(figsize=(8, 6))
+# plt.scatter(reduced_data[:, 0], reduced_data[:, 1], c=agg_labels, cmap='viridis')
+# plt.title("Agglomerative Clustering Results")
+# plt.xlabel("PCA Component 1")
+# plt.ylabel("PCA Component 2")
+# plt.colorbar(label="Cluster Label")
+# plt.show()
+
+# # Compute the pairwise Levenshtein distances (edit distance)
+# def compute_edit_distances(traces):
+#     num_traces = len(traces)
+#     distance_matrix = np.zeros((num_traces, num_traces))
     
-    for i in range(num_traces):
-        for j in range(i+1, num_traces):
-            distance = lev.distance(' '.join(traces[i]), ' '.join(traces[j]))  # Levenshtein distance
-            distance_matrix[i, j] = distance
-            distance_matrix[j, i] = distance  # Symmetric distance matrix
-    return distance_matrix
+#     for i in range(num_traces):
+#         for j in range(i+1, num_traces):
+#             distance = lev.distance(' '.join(traces[i]), ' '.join(traces[j]))  # Levenshtein distance
+#             distance_matrix[i, j] = distance
+#             distance_matrix[j, i] = distance  # Symmetric distance matrix
+#     return distance_matrix
 
-# Create the distance matrix using edit distance
-distance_matrix = compute_edit_distances(traces)
+# # Create the distance matrix using edit distance
+# distance_matrix = compute_edit_distances(traces)
 
-print(distance_matrix.size)
+# print(distance_matrix.size)
 
-print(distance_matrix[0].size)
+# print(distance_matrix[0].size)
+
+
 # # Apply KMeans clustering to detect concept drift (based on edit distances)
 # kmeans = KMeans(n_clusters=2, random_state=0)
 # kmeans.fit(distance_matrix)  # Using the precomputed distance matrix
