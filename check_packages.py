@@ -1,6 +1,6 @@
 import importlib.util
 
-packages = ["pm4py", "pandas", "matplotlib", "sklearn", "torch"]
+packages = ["pm4py", "pandas", "matplotlib", "sklearn", "torch", "Levenshtein"]
 
 for pkg in packages:
     spec = importlib.util.find_spec(pkg)

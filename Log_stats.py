@@ -1,13 +1,11 @@
 import pm4py
-from pm4py.objects.log.importer.xes import factory as xes_importer
-from pm4py.algo.transformation.log_to_data_frame import algorithm as log_to_df
-from pm4py.statistics.traces.log import case_statistics
-from pm4py.statistics.variants.log import get as variants_get
+from pm4py.objects.log.importer.xes import importer as xes_importer
+from pm4py.objects.conversion.log import converter as log_converter
 import pandas as pd
+import os
 
 # Force use of IMf (Inductive Miner for Petri nets)
-
-file_path = r'raw_datasets\BPI_Challenge_2012.xes.gz'
+file_path = r'Hospital Data\Hospital Billing - Event Log.xes.gz'
 
 if not os.path.isfile(file_path):
     raise FileNotFoundError(f"File not found: {file_path}")
@@ -15,37 +13,41 @@ if not os.path.isfile(file_path):
 # Load log
 log = xes_importer.apply(file_path)
 # Convert to DataFrame
-df = log_to_df.apply(log)
+df = log_converter.apply(log)
+
+# Convert to DataFrame
+df = log_converter.apply(log, variant=log_converter.Variants.TO_DATA_FRAME)
 
 print("=== EVENT LOG SUMMARY ===")
 print(f"Number of cases: {df['case:concept:name'].nunique()}")
 print(f"Number of events: {len(df)}")
-print(f"Number of unique activities: {df['concept:name'].nunique()}")
+print(f"Unique activities: {df['concept:name'].nunique()}")
 
-# Most common activities
-print("\nTop 10 most frequent activities:")
+# Most frequent activities
+print("\nTop 10 activities:")
 print(df['concept:name'].value_counts().head(10))
 
 # Trace length statistics
 trace_lengths = df.groupby("case:concept:name").size()
-print("\nTrace Length Statistics (events per case):")
+print("\nTrace length stats:")
 print(trace_lengths.describe())
 
-# Case duration
+# Case duration statistics
 df["time:timestamp"] = pd.to_datetime(df["time:timestamp"])
-case_times = df.groupby("case:concept:name")["time:timestamp"]
-durations = (case_times.max() - case_times.min()).dt.total_seconds() / 3600  # in hours
+case_durations = df.groupby("case:concept:name")["time:timestamp"].agg(lambda x: x.max() - x.min())
+case_durations_hours = case_durations.dt.total_seconds() / 3600
+print("\nCase duration stats (hours):")
+print(case_durations_hours.describe())
 
-print("\nCase Duration Statistics (in hours):")
-print(durations.describe())
+print("\n headers")
 
-# Variant analysis
-variants_count = variants_get.get_variants_df(log)
-print("\nTop 5 Variants:")
-print(variants_count.head())
+print(df.columns.tolist())
 
-# Optional: show percentage of top 5 variants
-top_variants = variants_count.head(5).copy()
-top_variants["percent"] = 100 * top_variants["count"] / top_variants["count"].sum()
-print("\nTop 5 Variants (with %):")
-print(top_variants[["variant", "count", "percent"]])
+print("\n first trace")
+trace = log[0]
+for event in log[0]:
+    print({
+        "Case ID": trace.attributes["concept:name"],
+        "Activity": event["concept:name"],
+        "Timestamp": event["time:timestamp"]
+    })
