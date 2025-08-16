@@ -59,29 +59,26 @@ df = pd.DataFrame(list(case_activities.items()), columns=["case_id", "activities
 df['cluster'] = df['case_id'].map(lambda case_id: kmeans.labels_[list(case_activities.keys()).index(case_id)])
 
 # 6. Visualize the clusters using PCA for dimensionality reduction
-pca = PCA(n_components=100)
+pca = PCA(n_components=2)
 reduced_data = pca.fit_transform(X)
 
+# Get the explained variance ratio to display percentages on the axes
+explained_variance = pca.explained_variance_ratio_ * 100
+
+# Plotting the PCA components with clusters as a legend
 plt.figure(figsize=(8, 6))
-plt.scatter(reduced_data[:, 0], reduced_data[:, 1], c=kmeans.labels_, cmap='viridis')
+scatter = plt.scatter(reduced_data[:, 0], reduced_data[:, 1], c=kmeans.labels_, cmap='viridis', alpha=0.6)
+
+# Add a legend using the unique cluster labels
+plt.legend(handles=scatter.legend_elements()[0], labels=[f"Cluster {i}" for i in range(5)], title="Clusters")
+
+# Add axis labels with percentage of explained variance
+plt.xlabel(f"PC1 ({explained_variance[0]:.2f}%)")
+plt.ylabel(f"PC2 ({explained_variance[1]:.2f}%)")
+
 plt.title("Clustered Cases based on Min-Hash Signatures")
-plt.xlabel("PCA Component 1")
-plt.ylabel("PCA Component 2")
-plt.colorbar(label="Cluster Label")
 plt.show()
 
 # 7. Evaluate clustering with silhouette score
 sil_score = silhouette_score(X, kmeans.labels_)
 print(f"Silhouette Score: {sil_score}")
-
-# # 8. Scree Plot for PCA Explained Variance
-# pca = PCA(n_components=100)  # We can set this number based on your needs
-# pca.fit(similarity_matrix)
-
-# # Plot the Scree Plot
-# plt.figure(figsize=(8, 6))
-# plt.plot(range(1, 101), pca.explained_variance_ratio_, marker='o', linestyle='--')
-# plt.title('Scree Plot')
-# plt.xlabel('Principal Component')
-# plt.ylabel('Explained Variance Ratio')
-# plt.show()

@@ -133,3 +133,5 @@ plt.show()
 # 7. Silhouette Score for clustering evaluation
 sil_score = silhouette_score(similarity_matrix, kmeans.labels_)
 print(f"Silhouette Score (after applying Min-Hash and Edit Distance): {sil_score}")
+
+
