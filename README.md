@@ -1,6 +1,4 @@
-Here is a basic README template for the repository you've shared:
 
----
 
 # **Predictive Process Monitoring with Deep Learning**
 
@@ -72,6 +70,3 @@ Contributions are welcome! Please open an issue for any questions or suggestions
 
 This project is licensed under the MIT License.
 
----
-
-This should provide a good starting point for the repository. Let me know if you need further adjustments or more details!
