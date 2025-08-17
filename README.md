@@ -1,5 +1,3 @@
-
-
 # **Predictive Process Monitoring with Deep Learning**
 
 ## **Overview**
