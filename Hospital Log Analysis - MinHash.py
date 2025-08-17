@@ -1,13 +1,28 @@
+
+# =============================================================================
+# 1) Imports
+# =============================================================================
+
 import pm4py
+import h5py
 from pm4py.objects.log.importer.xes import importer as xes_importer
 import pandas as pd
 import numpy as np
 import os
-import hashlib
-from sklearn.cluster import KMeans
+import Levenshtein as lev
+from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import LabelEncoder
 import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA
+from kmodes.kmodes import KModes
+from multiprocessing import Pool
+from scipy.sparse import lil_matrix  # LIL format is efficient for incremental construction
+from datasketch import MinHash, MinHashLSH
+
+# =============================================================================
+# 2) Configuration / Input
+#    - Set the path to the XES log file and verify it exists
+# =============================================================================
 
 # Force use of IMf (Inductive Miner for Petri nets)
 file_path = r'Hospital Data\Hospital Billing - Event Log.xes.gz'
@@ -15,70 +30,128 @@ file_path = r'Hospital Data\Hospital Billing - Event Log.xes.gz'
 if not os.path.isfile(file_path):
     raise FileNotFoundError(f"File not found: {file_path}")
 
+# =============================================================================
+# 3) Load Event Log
+#    - Read the XES event log into a pm4py EventLog object
+# =============================================================================
+
 # Load the event log
 log = xes_importer.apply(file_path)
 
-# 1. Min-Hash Implementation
-def hash_function(i, value):
-    """Returns a hash value for the given element and hash function index"""
-    return int(hashlib.md5(f"{i}-{value}".encode('utf-8')).hexdigest(), 16)
+# =============================================================================
+# 4) Extract Unique Activities
+#    - Iterate all traces and events to collect the set of activity names
+# =============================================================================
 
-def min_hash(set_a, k=100):
-    """Generate Min-Hash signature for the given set"""
-    signature = []
-    for i in range(k):
-        # Hash the elements of the set with the i-th hash function
-        signature.append(min([hash_function(i, elem) for elem in set_a]))
-    return signature
+# Extract unique event activities across all traces
+unique_activities = set()  # Use a set to ensure uniqueness
 
-# 2. Convert the event log into sets of activities per case (case-based analysis)
-case_activities = {}
+for trace in log:
+    for event in trace:
+        activity_name = event['concept:name']
+        unique_activities.add(activity_name)  # Add the activity name to the set
+
+print(f"\nUnique event activities in the log: \n{unique_activities}")
+
+# =============================================================================
+# 5) Convert EventLog -> Tabular Data (DataFrame)
+#    - Flatten the event log into rows: (case_id, activity, timestamp)
+# =============================================================================
+
+# Convert EventLog to DataFrame for further analysis
+data = []
 for trace in log:
     case_id = trace.attributes['concept:name']
-    activities = set()
     for event in trace:
-        activities.add(event['concept:name'])
-    case_activities[case_id] = activities
+        activity = event['concept:name']
+        timestamp = event['time:timestamp']
+        data.append((case_id, activity, timestamp))
 
-# 3. Generate Min-Hash Signatures for All Cases (to represent each case by a vector)
-min_hash_signatures = []
+# Create a DataFrame from the event log data
+df = pd.DataFrame(data, columns=['case_id', 'activity', 'timestamp'])
+print(df[0:10])
 
-for case_id, activities in case_activities.items():
-    signature = min_hash(activities, k=100)
-    min_hash_signatures.append(signature)
+# =============================================================================
+# 6) Build Traces (sequence of activities per case)
+#    - Group by case_id and collect ordered activity lists
+# =============================================================================
 
-# Convert signatures to a numpy array for clustering
-X = np.array(min_hash_signatures)
+# Group by case_id to create traces (sequences of activities)
+traces = df.groupby('case_id')['activity'].apply(list).tolist()
 
-# 4. Apply KMeans Clustering
-kmeans = KMeans(n_clusters=5, random_state=42)
-kmeans.fit(X)
+# =============================================================================
+# 6) Generate k-shingles (k-length subsequences)
+# =============================================================================
 
-# 5. Add cluster labels to the cases in the original DataFrame
-df = pd.DataFrame(list(case_activities.items()), columns=["case_id", "activities"])
-df['cluster'] = df['case_id'].map(lambda case_id: kmeans.labels_[list(case_activities.keys()).index(case_id)])
+# Function to generate k-shingles for a trace
+def generate_k_shingles(trace, k):
+    shingles = []
+    for i in range(len(trace) - k + 1):
+        shingles.append(tuple(trace[i:i + k]))  # Create tuple to be hashable
+    return shingles
 
-# 6. Visualize the clusters using PCA for dimensionality reduction
-pca = PCA(n_components=2)
-reduced_data = pca.fit_transform(X)
+# Set the size of the k-shingles
+k = 3  # You can adjust this value
 
-# Get the explained variance ratio to display percentages on the axes
-explained_variance = pca.explained_variance_ratio_ * 100
+# Generate k-shingles for each trace
+k_shingles = [generate_k_shingles(trace, k) for trace in traces]
 
-# Plotting the PCA components with clusters as a legend
-plt.figure(figsize=(8, 6))
-scatter = plt.scatter(reduced_data[:, 0], reduced_data[:, 1], c=kmeans.labels_, cmap='viridis', alpha=0.6)
+# Flatten the list of shingles and convert to a set to remove duplicates
+all_shingles = set([shingle for sublist in k_shingles for shingle in sublist])
 
-# Add a legend using the unique cluster labels
-plt.legend(handles=scatter.legend_elements()[0], labels=[f"Cluster {i}" for i in range(5)], title="Clusters")
+# Print first few shingles to verify
+print(f"First few k-shingles: \n{list(all_shingles)[:10]}")
 
-# Add axis labels with percentage of explained variance
-plt.xlabel(f"PC1 ({explained_variance[0]:.2f}%)")
-plt.ylabel(f"PC2 ({explained_variance[1]:.2f}%)")
+# =============================================================================
+# 7) Compute MinHash Signatures (Create fast fingerprints for each trace)
+# =============================================================================
 
-plt.title("Clustered Cases based on Min-Hash Signatures")
-plt.show()
+from datasketch import MinHash
+# Function to compute MinHash signature for a set of shingles (trace)
+def compute_minhash_signature(shingles_set, num_hashes=200):
+    minhash = MinHash(num_perm=num_hashes)
+    for shingle in shingles_set:
+        minhash.update(str(shingle).encode('utf8'))  # Update with each shingle
+    return minhash
 
-# 7. Evaluate clustering with silhouette score
-sil_score = silhouette_score(X, kmeans.labels_)
-print(f"Silhouette Score: {sil_score}")
+# Compute MinHash signatures for all traces (using k-shingles)
+minhash_signatures = [compute_minhash_signature(shingles_set) for shingles_set in k_shingles]
+
+# =============================================================================
+# 8) Apply LSH (Locality Sensitive Hashing) to Generate Candidate Pairs
+# =============================================================================
+
+# Initialize the LSH object with a threshold for similarity and the number of permutations for MinHash
+threshold = 0.8  # Similarity threshold for considering pairs as candidates
+lsh = MinHashLSH(threshold=threshold, num_perm=200)
+
+# Insert each trace's MinHash signature into the LSH index
+for idx, minhash in enumerate(minhash_signatures):
+    lsh.insert(f"trace_{idx}", minhash)
+
+# Generate candidate pairs: pairs of traces that are similar enough based on MinHash signatures
+candidate_pairs = []
+for idx1 in range(len(minhash_signatures)):
+    for idx2 in range(idx1 + 1, len(minhash_signatures)):
+        if lsh.query(minhash_signatures[idx2]):
+            candidate_pairs.append((idx1, idx2))
+
+# Print the candidate pairs generated by LSH
+print("Candidate pairs generated by LSH:")
+for pair in candidate_pairs:
+    print(f"Trace {pair[0]} and Trace {pair[1]}")
+
+# =============================================================================
+# 9) Optional: Evaluate Candidate Pairs using Jaccard Similarity
+# =============================================================================
+
+# Function to compute Jaccard similarity between two sets of shingles
+def jaccard_similarity(set1, set2):
+    intersection = len(set1.intersection(set2))
+    union = len(set1.union(set2))
+    return intersection / union
+
+# Calculate Jaccard similarity for the candidate pairs
+for pair in candidate_pairs:
+    similarity = jaccard_similarity(set(k_shingles[pair[0]]), set(k_shingles[pair[1]]))
+    print(f"Jaccard Similarity between Trace {pair[0]} and Trace {pair[1]}: {similarity:.4f}")

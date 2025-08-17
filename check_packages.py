@@ -5,7 +5,6 @@ import sys
 # List of required packages
 packages = [
     'pm4py',
-    'scikit-learn',
     'pandas',
     'numpy',
     'matplotlib',
@@ -15,7 +14,8 @@ packages = [
     'tensorflow',  # for deep learning models
     'torch',  # optional: PyTorch models
     'kmodes',
-    'Levenshtein'
+    'Levenshtein',
+    'datasketch'
 ]
 
 def install_package(package):
