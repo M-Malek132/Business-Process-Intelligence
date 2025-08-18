@@ -18,6 +18,7 @@ packages = [
     'datasketch'
 ]
 
+
 def install_package(package):
     """ Installs the package using pip. """
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
