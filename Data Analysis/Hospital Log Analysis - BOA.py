@@ -43,10 +43,6 @@ if not os.path.isfile(file_path):
 # Load the event log
 log = xes_importer.apply(file_path)
 
-for i in range(10):
-    print(f"\n log{i}:\n{log[i]}")
-
-print(len(log))
 # =============================================================================
 # 4) Extract Unique Activities
 #    - Iterate all traces and events to collect the set of activity names

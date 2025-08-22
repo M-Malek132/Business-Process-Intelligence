@@ -1,0 +1,182 @@
+# =============================================================================
+# 1) Imports
+# =============================================================================
+
+import pm4py
+import h5py
+from pm4py.objects.log.importer.xes import importer as xes_importer
+import pandas as pd
+import numpy as np
+import os
+import Levenshtein as lev
+from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import LabelEncoder
+import matplotlib.pyplot as plt
+from kmodes.kmodes import KModes
+from multiprocessing import Pool
+from scipy.sparse import lil_matrix  # LIL format is efficient for incremental construction
+import csv
+from datetime import datetime
+
+# =============================================================================
+# 2) Configuration / Input
+#    - Set the path to the XES log file and verify it exists
+# =============================================================================
+
+# Get the current working directory (directory where the script is running)
+current_dir = os.path.dirname(os.path.realpath(__file__))
+
+# Construct the path to the file from the parent directory
+file_path = os.path.join(current_dir, '..', 'Hospital Data', 'Hospital Billing - Event Log.xes.gz')
+
+# Normalize the path to avoid issues with different OS path formats
+file_path = os.path.normpath(file_path)
+
+if not os.path.isfile(file_path):
+    raise FileNotFoundError(f"File not found: {file_path}")
+
+# =============================================================================
+# 3) Load Event Log
+#    - Read the XES event log into a pm4py EventLog object
+# =============================================================================
+
+# Load the event log
+log = xes_importer.apply(file_path)
+
+
+# =============================================================================
+# 4) Data Preprocessing
+#    - Convert the event log into a pandas DataFrame for easier manipulation
+# =============================================================================
+
+# Extract trace information (case_id, activity, timestamp, and resource)
+
+data = []
+for trace in log:
+    case_id = trace.attributes['concept:name']
+    for event in trace:
+        activity = event["concept:name"]
+        timestamp_str = event['time:timestamp']
+        timestamp = timestamp_str.timestamp()
+        resource = event.get("org:resource", "Unknown")  # Use "Unknown" if resource is missing
+        data.append([case_id, activity, timestamp, resource])
+
+# Create a pandas DataFrame from the extracted data
+df = pd.DataFrame(data, columns=["case_id", "activity", "timestamp", "resource"])
+
+print(df.head())
+# print(df[0])
+# =============================================================================
+# 5) Feature Engineering
+#    - Calculate time features, activity duration, etc.
+# =============================================================================
+
+# Calculate the duration between each activity for each case
+df["activity_duration"] = df.groupby("case_id")["timestamp"].diff().shift(-1)
+
+# Calculate the total duration for each case
+total_duration = df.groupby("case_id")["activity_duration"].sum()
+df = df.merge(total_duration, on="case_id", suffixes=("", "_total"))
+
+# Extract other useful features (e.g., number of activities per case)
+activity_counts = df.groupby("case_id")["activity"].count()
+df = df.merge(activity_counts, on="case_id", suffixes=("", "_count"))
+
+print(df.head())
+# print(df[0])
+# =============================================================================
+# 6) Encoding Categorical Variables
+#    - Encode activities and resources as numerical values for clustering
+# =============================================================================
+
+# Encode the activity and resource using LabelEncoder
+label_encoder_activity = LabelEncoder()
+df["activity_encoded"] = label_encoder_activity.fit_transform(df["activity"])
+
+label_encoder_resource = LabelEncoder()
+df["resource_encoded"] = label_encoder_resource.fit_transform(df["resource"])
+
+# =============================================================================
+# 7) Clustering: K-Means and Agglomerative Clustering
+#    - Perform clustering on the preprocessed data
+# =============================================================================
+
+# Select features for clustering (e.g., encoded activity and resource, activity duration)
+X = df[["activity_encoded", "resource_encoded", "activity_duration"]].dropna()
+
+# K-Means Clustering
+kmeans = KMeans(n_clusters=3, random_state=42)
+df["kmeans_cluster"] = kmeans.fit_predict(X)
+
+# # Agglomerative Clustering
+# agglo = AgglomerativeClustering(n_clusters=3)
+# df["agglo_cluster"] = agglo.fit_predict(X)
+
+# =============================================================================
+# 8) Visualize the Clusters
+#    - Plot the clusters using matplotlib
+# =============================================================================
+
+# Plot KMeans clusters
+plt.figure(figsize=(10, 6))
+plt.scatter(df["activity_duration"], df["hour_of_day"], c=df["kmeans_cluster"], cmap="viridis", s=30)
+plt.title("KMeans Clusters")
+plt.xlabel("Activity Duration")
+plt.ylabel("Hour of Day")
+plt.colorbar(label="Cluster")
+plt.show()
+
+# Plot Agglomerative Clusters
+plt.figure(figsize=(10, 6))
+plt.scatter(df["activity_duration"], df["hour_of_day"], c=df["agglo_cluster"], cmap="viridis", s=30)
+plt.title("Agglomerative Clusters")
+plt.xlabel("Activity Duration")
+plt.ylabel("Hour of Day")
+plt.colorbar(label="Cluster")
+plt.show()
+
+# =============================================================================
+# 9) Classification (Optional)
+#    - If you have a class label (e.g., outcome or next activity), train a classifier
+# =============================================================================
+
+# Example: Predict the outcome (binary classification)
+# Assuming the 'outcome' column exists in the log data (you may need to adjust this part)
+
+# For demonstration, we will simulate an "outcome" column
+df["outcome"] = np.random.choice([0, 1], size=len(df))  # 0 = failure, 1 = success
+
+# Prepare the feature set (use the same features for classification)
+X_class = df[["activity_encoded", "resource_encoded", "activity_duration", "hour_of_day", "day_of_week"]].dropna()
+y_class = df["outcome"].dropna()
+
+# Split the data into train and test sets
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X_class, y_class, test_size=0.3, random_state=42)
+
+# Train a Random Forest Classifier
+from sklearn.ensemble import RandomForestClassifier
+clf = RandomForestClassifier(random_state=42)
+clf.fit(X_train, y_train)
+
+# Predict the outcomes
+y_pred = clf.predict(X_test)
+
+# Evaluate the model
+from sklearn.metrics import accuracy_score, confusion_matrix
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
+
+# =============================================================================
+# 10) Save the Preprocessed Data and Model (Optional)
+#    - Save the processed data or model for later use
+# =============================================================================
+
+# Save the dataframe with cluster information
+df.to_csv("processed_event_log_with_clusters.csv", index=False)
+
+# Save the trained model
+import joblib
+joblib.dump(clf, "random_forest_model.pkl")
+

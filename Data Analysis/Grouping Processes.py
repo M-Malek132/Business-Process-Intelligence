@@ -19,6 +19,7 @@ from kmodes.kmodes import KModes
 from multiprocessing import Pool
 from scipy.sparse import lil_matrix  # LIL format is efficient for incremental construction
 import csv
+from datetime import datetime
 
 # =============================================================================
 # 2) Configuration / Input
@@ -29,7 +30,7 @@ import csv
 current_dir = os.path.dirname(os.path.realpath(__file__))
 
 # Construct the path to the file from the parent directory
-file_path = os.path.join(current_dir, '..', 'raw_datasets', 'BPI_Challenge_2012.xes.gz')
+file_path = os.path.join(current_dir, '..', 'Hospital Data', 'Hospital Billing - Event Log.xes.gz')
 
 # Normalize the path to avoid issues with different OS path formats
 file_path = os.path.normpath(file_path)
@@ -44,6 +45,7 @@ if not os.path.isfile(file_path):
 
 # Load the event log
 log = xes_importer.apply(file_path)
+
 
 # =============================================================================
 # 4) Extract Unique Activities
@@ -71,12 +73,19 @@ for trace in log:
     case_id = trace.attributes['concept:name']
     for event in trace:
         activity = event['concept:name']
-        timestamp = event['time:timestamp']
-        data.append((case_id, activity, timestamp))
+        timestamp_str = event['time:timestamp']
+        timestamp = timestamp_str.timestamp()
+        
+        # Extract resource information (assuming it's stored in 'org:resource')
+        resource = event.get('org:resource', 'Unknown')  # Default to 'Unknown' if resource is not present
+        
+        data.append((case_id, activity, timestamp, resource))  # Include resource in the tuple
+
 
 # Create a DataFrame from the event log data
-df = pd.DataFrame(data, columns=['case_id', 'activity', 'timestamp'])
-print(df[0])
+df = pd.DataFrame(data, columns=['case_id', 'activity', 'timestamp', 'resource'])
+print((data[0]))
+
 # =============================================================================
 # 6) Build Traces (sequence of activities per case)
 #    - Group by case_id and collect ordered activity lists
@@ -93,9 +102,19 @@ traces = df.groupby('case_id')['activity'].apply(list).tolist()
 # Calculate the length of each trace (sequence of activities)
 trace_lengths = [len(trace) for trace in traces]
 
+# Count the number of traces with length 1
+num_traces_length_1 = sum(1 for length in trace_lengths if length == 1)
+
+# Print the result
+print(f"Number of traces with length 1: {num_traces_length_1}")
+
 # Print out the trace lengths (for debugging or inspection purposes)
 # print(f"\nTrace lengths: {trace_lengths}")
-print(trace[0])
+print(trace_lengths[0])
+max_length = max(trace_lengths)
+mean_length = np.mean(trace_lengths)
+print(f'\nmax_length:{max_length}\nmean_length{mean_length}')
+
 # =============================================================================
 # 8) KMeans Clustering of Traces Based on Length
 #    - Use KMeans to cluster traces based on their length
@@ -117,21 +136,7 @@ trace_clusters = kmeans.labels_
 print(f"\nCluster assignments based on length:\n{trace_clusters}")
 
 # =============================================================================
-# 9) Agglomerative Clustering of Traces Based on Length
-#    - Use AgglomerativeClustering for a hierarchical approach
-# =============================================================================
-
-# Initialize AgglomerativeClustering with 4 clusters
-agg_clustering = AgglomerativeClustering(n_clusters=4)
-
-# Fit the model
-agg_labels = agg_clustering.fit_predict(trace_lengths_reshaped)
-
-# Print out the cluster assignments from AgglomerativeClustering
-print(f"\nAgglomerative clustering cluster assignments:\n{agg_labels}")
-
-# =============================================================================
-# 10) Evaluate Clustering Performance (Silhouette Score)
+# 9) Evaluate Clustering Performance (Silhouette Score)
 #    - Calculate silhouette scores for the two clustering models to evaluate performance
 # =============================================================================
 
@@ -139,18 +144,14 @@ print(f"\nAgglomerative clustering cluster assignments:\n{agg_labels}")
 kmeans_silhouette = silhouette_score(trace_lengths_reshaped, trace_clusters)
 print(f"\nSilhouette Score for KMeans Clustering: {kmeans_silhouette}")
 
-# AgglomerativeClustering silhouette score
-agg_silhouette = silhouette_score(trace_lengths_reshaped, agg_labels)
-print(f"Silhouette Score for AgglomerativeClustering: {agg_silhouette}")
-
 # =============================================================================
-# 11) Display the Clusters (Optional Visualization)
+# 10) Display the Clusters (Optional Visualization)
 #    - Plot a histogram of trace lengths and visualize cluster distribution
 # =============================================================================
 
 # Plot a histogram of trace lengths
 plt.figure(figsize=(10, 6))
-plt.hist(trace_lengths, bins=20, color='skyblue', edgecolor='black')
+plt.hist(trace_lengths, bins=5, color='skyblue', edgecolor='black')
 plt.title("Histogram of Trace Lengths")
 plt.xlabel("Trace Length (Number of Activities)")
 plt.ylabel("Frequency")
@@ -165,20 +166,3 @@ plt.ylabel("Trace Length")
 plt.colorbar(label="Cluster")
 plt.grid(True)
 plt.show()
-
-# =============================================================================
-# 12) Save Cluster Information to CSV
-#    - Save the trace clusters to a CSV file
-# =============================================================================
-
-# Create a DataFrame with case_id and corresponding cluster label
-cluster_df = pd.DataFrame({
-    'case_id': df['case_id'].unique(),
-    'cluster': trace_clusters
-})
-
-# Save to CSV
-output_file = os.path.join(current_dir, 'trace_clusters.csv')
-cluster_df.to_csv(output_file, index=False)
-
-print(f"\nTrace clusters saved to: {output_file}")
