@@ -4,8 +4,14 @@ from pm4py.objects.conversion.log import converter as log_converter
 import pandas as pd
 import os
 
+# Get the current working directory (directory where the script is running)
+current_dir = os.path.dirname(os.path.realpath(__file__))
+
+# Construct the path to the file from the parent directory
+file_path = os.path.join(current_dir, '..', 'raw_datasets', 'BPI_Challenge_2012.xes.gz')
+
 # Load and convert to DataFrame
-log = xes_importer.apply(r'raw_datasets\nasa.xes.gz')
+log = xes_importer.apply(file_path)
 df = log_converter.apply(log, variant=log_converter.Variants.TO_DATA_FRAME)
 
 # Create bag-of-activities per trace
