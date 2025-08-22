@@ -4,8 +4,11 @@ from pm4py.objects.conversion.log import converter as log_converter
 import pandas as pd
 import os
 
-# Force use of IMf (Inductive Miner for Petri nets)
-file_path = r'Hospital Data\Hospital Billing - Event Log.xes.gz'
+# Get the current working directory (directory where the script is running)
+current_dir = os.path.dirname(os.path.realpath(__file__))
+
+# Construct the path to the file from the parent directory
+file_path = os.path.join(current_dir, '..', 'raw_datasets', 'BPI_Challenge_2012.xes.gz')
 
 if not os.path.isfile(file_path):
     raise FileNotFoundError(f"File not found: {file_path}")
