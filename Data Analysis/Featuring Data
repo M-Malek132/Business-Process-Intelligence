@@ -65,11 +65,11 @@ for trace in log:
 # Create a pandas DataFrame from the extracted data
 df = pd.DataFrame(data, columns=["case_id", "activity", "timestamp", "resource"])
 
-# print(df.head())
+print(df.head())
 
 # Check for missing values in the key columns
 missing_values = df.isnull().sum()
-print(f"Missing Values: {missing_values}")
+print(f"Missing Values: \n{missing_values}")
 
 # =============================================================================
 # 5) Feature Engineering
@@ -104,6 +104,24 @@ df["is_first_activity"] = df.groupby("case_id")["timestamp"].transform("min") ==
 
 # Flag for last activity in the case
 df["is_last_activity"] = df.groupby("case_id")["timestamp"].transform("max") == df["timestamp"]
+
+# Calculate time between consecutive activities for each case
+df["time_between_activities"] = df.groupby("case_id")["timestamp"].diff().shift(-1)
+
+# Create a list of activities in the order they occur for each case
+df["activity_sequence"] = df.groupby("case_id")["activity"].transform(lambda x: "->".join(x))
+
+# Merge 'AMOUNT_REQ' into the dataframe based on 'case_id'
+df["AMOUNT_REQ"] = df.groupby("case_id")["AMOUNT_REQ"].transform('first')
+
+# Resource Information: Just retain the 'resource' column as is
+df["resource"] = df["resource"].fillna("Unknown")
+
+# Calculate the resource utilization: Count how many activities each resource is involved in
+resource_utilization = df.groupby("resource")["activity"].count().sort_values(ascending=False)
+df["resource_utilization"] = df["resource"].map(resource_utilization)
+# This adds a column that tells how many activities each resource has been involved in
+
 
 # Show the first few rows of the dataframe with the new features
 print(df.head())
